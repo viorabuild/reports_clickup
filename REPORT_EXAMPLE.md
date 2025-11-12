@@ -126,6 +126,13 @@ python -m clickup_agent report --output daily_report.txt
 0 18 * * * cd /path/to/clickup-system && /path/to/.venv/bin/python -m clickup_agent report --output /path/to/reports/daily_$(date +\%Y\%m\%d).txt
 ```
 
+## Переменные окружения
+
+- `REPORT_COMPLETED_STATUSES` — перечисление статусов, которые считаются завершёнными (по умолчанию: `closed, complete, completed`).
+- `REPORT_ACTIVE_STATUSES` — статусы активных задач для проверки дедлайнов и просрочек (по умолчанию: `open, in progress, to do`).
+
+Перечисляйте значения через запятую — сервис автоматически разобьёт строку и удалит пробелы.
+
 ## Требования к данным в ClickUp
 
 Для корректной работы отчётов необходимо:

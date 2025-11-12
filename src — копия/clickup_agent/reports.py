@@ -145,13 +145,13 @@ class DailyReportGenerator:
         """Fetch all tasks for the target date."""
         # Fetch completed tasks
         completed_tasks = self._clickup.fetch_tasks(
-            statuses=["closed", "complete", "completed"],
+            statuses=self._settings.report_completed_statuses,
             include_closed=True,
         )
 
         # Fetch in-progress and open tasks
         active_tasks = self._clickup.fetch_tasks(
-            statuses=["open", "in progress", "to do"],
+            statuses=self._settings.report_active_statuses,
             include_closed=False,
         )
 

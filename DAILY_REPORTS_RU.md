@@ -61,6 +61,13 @@ python -m clickup_agent report --output reports.txt
 0 18 * * * cd /path/to/clickup-system && /path/to/.venv/bin/python -m clickup_agent report --output /path/to/reports/daily_$(date +\%Y\%m\%d).txt
 ```
 
+## Переменные окружения
+
+- `REPORT_COMPLETED_STATUSES` — список статусов, которые считаются выполненными при построении отчётов (значение по умолчанию: `closed, complete, completed`).
+- `REPORT_ACTIVE_STATUSES` — статусы активных задач, проверяемые на дедлайны и просрочки (значение по умолчанию: `open, in progress, to do`).
+
+Указывайте значения через запятую; пробелы автоматически обрезаются.
+
 ## Технические детали
 
 ### Изменённые файлы

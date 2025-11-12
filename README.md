@@ -141,6 +141,13 @@ Cron / Scheduler
 Ежедневные отчёты в 18:00:
 0 18 * * * cd /path/to/clickup-system && /path/to/.venv/bin/python -m clickup_agent report --output /path/to/reports/daily_$(date +\%Y\%m\%d).txt
 Или задеплойте контейнер в AWS Lambda / Cloud Run с планировщиком.
+### Переменные окружения для ежедневных отчётов
+
+- `REPORT_COMPLETED_STATUSES` — статусы, которые считаются выполненными при генерации отчёта (по умолчанию: `closed, complete, completed`).
+- `REPORT_ACTIVE_STATUSES` — статусы активных задач, которые проверяются на дедлайн и просрочку (по умолчанию: `open, in progress, to do`).
+
+Значения указываются строкой через запятую; лишние пробелы игнорируются.
+
 Roadmap
 MVP: уже реализовано — базовая интеграция, один кастомный field, запуск по расписанию.
 v2.0: webhook для near real-time, конфигурируемые промпты, метрики.

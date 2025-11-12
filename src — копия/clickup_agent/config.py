@@ -8,6 +8,9 @@ from typing import Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_REPORT_COMPLETED_STATUSES = ("closed", "complete", "completed")
+DEFAULT_REPORT_ACTIVE_STATUSES = ("open", "in progress", "to do")
+
 
 class Settings(BaseSettings):
     """Environment-backed application settings."""
@@ -32,6 +35,14 @@ class Settings(BaseSettings):
     # Agent behaviour
     batch_size: int = Field(10, env="TASK_BATCH_SIZE")
     dry_run: bool = Field(False, env="DRY_RUN")
+    report_completed_statuses: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_REPORT_COMPLETED_STATUSES),
+        env="REPORT_COMPLETED_STATUSES",
+    )
+    report_active_statuses: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_REPORT_ACTIVE_STATUSES),
+        env="REPORT_ACTIVE_STATUSES",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -45,9 +56,16 @@ class Settings(BaseSettings):
             raise ValueError("Must be greater than zero")
         return value
 
+    @field_validator("report_completed_statuses", "report_active_statuses", mode="before")
+    def split_statuses(cls, value):
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return cached settings instance."""
 
     return Settings()
+
