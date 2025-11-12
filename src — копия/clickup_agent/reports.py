@@ -115,6 +115,8 @@ class DailyReportGenerator:
     def generate_reports(
         self,
         target_date: Optional[datetime] = None,
+        statuses: Optional[List[str]] = None,
+        assignee: Optional[str] = None,
     ) -> List[EmployeeReport]:
         """Generate daily reports for all employees."""
         if target_date is None:
@@ -123,7 +125,11 @@ class DailyReportGenerator:
         logger.info("Generating reports for date: %s", target_date.strftime("%Y-%m-%d"))
 
         # Fetch all tasks (completed and not completed)
-        all_tasks = self._fetch_all_tasks(target_date)
+        all_tasks = self._fetch_all_tasks(
+            target_date,
+            statuses=statuses,
+            assignee=assignee,
+        )
 
         if not all_tasks:
             logger.warning("No tasks found for the specified date")
@@ -141,35 +147,65 @@ class DailyReportGenerator:
         logger.info("Generated %d employee reports", len(reports))
         return reports
 
-    def _fetch_all_tasks(self, target_date: datetime) -> List[ClickUpTask]:
+    def _fetch_all_tasks(
+        self,
+        target_date: datetime,
+        *,
+        statuses: Optional[List[str]] = None,
+        assignee: Optional[str] = None,
+    ) -> List[ClickUpTask]:
         """Fetch all tasks for the target date."""
-        # Fetch completed tasks
-        completed_tasks = self._clickup.fetch_tasks(
-            statuses=["closed", "complete", "completed"],
-            include_closed=True,
-        )
+        normalized_statuses = [
+            status.strip() for status in (statuses or []) if status and status.strip()
+        ]
+        normalized_statuses_lower = {status.lower() for status in normalized_statuses}
 
-        # Fetch in-progress and open tasks
-        active_tasks = self._clickup.fetch_tasks(
-            statuses=["open", "in progress", "to do"],
-            include_closed=False,
-        )
+        if normalized_statuses:
+            fetched_tasks = self._clickup.fetch_tasks(
+                statuses=normalized_statuses,
+                assignee=assignee,
+                include_closed=True,
+            )
+        else:
+            # Fetch completed tasks
+            completed_tasks = self._clickup.fetch_tasks(
+                statuses=["closed", "complete", "completed"],
+                assignee=assignee,
+                include_closed=True,
+            )
 
-        # Filter tasks by date
-        all_tasks = []
+            # Fetch in-progress and open tasks
+            active_tasks = self._clickup.fetch_tasks(
+                statuses=["open", "in progress", "to do"],
+                assignee=assignee,
+                include_closed=False,
+            )
+
+            fetched_tasks = [*completed_tasks, *active_tasks]
+
+        # Filter tasks by date and provided criteria
         next_day = target_date + timedelta(days=1)
+        filtered_tasks: List[ClickUpTask] = []
 
-        for task in completed_tasks:
+        for task in fetched_tasks:
+            if normalized_statuses_lower and (task.status or "").lower() not in normalized_statuses_lower:
+                continue
+
+            if assignee and not any(
+                str(member.get("id")) == str(assignee) for member in task.assignees
+            ):
+                continue
+
             # Include if closed on target date
             if task.date_closed and target_date <= task.date_closed < next_day:
-                all_tasks.append(task)
+                filtered_tasks.append(task)
+                continue
 
-        for task in active_tasks:
             # Include if due date is on or before target date
             if task.due_date and task.due_date <= next_day:
-                all_tasks.append(task)
+                filtered_tasks.append(task)
 
-        return all_tasks
+        return filtered_tasks
 
     def _group_tasks_by_employee(
         self, tasks: List[ClickUpTask]

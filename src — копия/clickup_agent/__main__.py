@@ -61,6 +61,15 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--output",
         help="Путь к файлу для сохранения отчётов (по умолчанию: вывод в консоль)",
     )
+    report_parser.add_argument(
+        "--status",
+        action="append",
+        help="Фильтр по статусу задач (можно указать несколько раз).",
+    )
+    report_parser.add_argument(
+        "--assignee",
+        help="Идентификатор исполнителя для ограничения выборки.",
+    )
     
     # Global arguments
     parser.add_argument(
@@ -127,7 +136,11 @@ def run_report(args: argparse.Namespace, settings: Settings) -> int:
     # Generate reports
     with ClickUpClient(settings) as clickup_client:
         generator = DailyReportGenerator(clickup_client, settings)
-        reports = generator.generate_reports(target_date=target_date)
+        reports = generator.generate_reports(
+            target_date=target_date,
+            statuses=getattr(args, "status", None),
+            assignee=getattr(args, "assignee", None),
+        )
     
     if not reports:
         logger.warning("Отчёты не сгенерированы. Проверьте наличие задач.")
