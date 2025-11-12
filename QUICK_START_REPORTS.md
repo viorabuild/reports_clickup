@@ -56,6 +56,16 @@ python -m clickup_agent report --output daily_report.txt
 python -m clickup_agent report --date $(date -v-1d +%Y-%m-%d) --output yesterday_report.txt
 ```
 
+### 5. Только завершённые задачи
+```bash
+python -m clickup_agent report --status completed
+```
+
+### 6. Отчёт по конкретному исполнителю и статусам
+```bash
+python -m clickup_agent report --assignee 123456789 --status "in progress" --status "review"
+```
+
 ## Автоматизация через cron
 
 ### Ежедневные отчёты в 18:00
