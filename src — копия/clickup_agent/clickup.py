@@ -53,6 +53,8 @@ class ClickUpClient:
         """Fetch tasks from ClickUp."""
 
         limit = limit or self._settings.task_fetch_limit
+        if limit <= 0:
+            return []
         params = {
             "archived": str(include_closed).lower(),
             "order_by": "updated",
@@ -80,17 +82,15 @@ class ClickUpClient:
         path = self._resolve_task_list_path()
 
         tasks: List[ClickUpTask] = []
+        max_page_size = 100
+        page_size = min(limit, max_page_size)
         page = 0
 
         while len(tasks) < limit:
-            remaining = limit - len(tasks)
-            if remaining <= 0:
-                break
-
             page_params = {
                 **params,
                 "page": page,
-                "limit": remaining,
+                "limit": page_size,
             }
 
             data = self._request("GET", path, params=page_params)

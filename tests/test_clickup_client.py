@@ -50,4 +50,4 @@ def test_fetch_tasks_paginates_until_limit(monkeypatch) -> None:
     assert first_call.kwargs["params"]["page"] == 0
     assert first_call.kwargs["params"]["limit"] == 5
     assert second_call.kwargs["params"]["page"] == 1
-    assert second_call.kwargs["params"]["limit"] == 2
+    assert second_call.kwargs["params"]["limit"] == 5
