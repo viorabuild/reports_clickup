@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -54,7 +54,7 @@ class ClickUpTask(BaseModel):
             timestamp = int(value)
             if timestamp > 10**11:
                 timestamp = timestamp / 1000
-            return datetime.fromtimestamp(timestamp)
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
         except (ValueError, TypeError, OSError):
             return None
 
@@ -67,7 +67,7 @@ class ClickUpTask(BaseModel):
             timestamp = int(value)
             if timestamp > 10**11:
                 timestamp = timestamp / 1000
-            return datetime.fromtimestamp(timestamp)
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
         except (ValueError, TypeError, OSError):
             return None
 

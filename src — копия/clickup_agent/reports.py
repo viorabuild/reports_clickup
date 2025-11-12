@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field
 
@@ -111,14 +112,21 @@ class DailyReportGenerator:
     def __init__(self, clickup_client: ClickUpClient, settings: Settings) -> None:
         self._clickup = clickup_client
         self._settings = settings
+        tz_name = settings.report_timezone or "UTC"
+        try:
+            self._report_tz = ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            logger.warning(
+                "Invalid report timezone '%s', falling back to UTC.", tz_name
+            )
+            self._report_tz = ZoneInfo("UTC")
 
     def generate_reports(
         self,
         target_date: Optional[datetime] = None,
     ) -> List[EmployeeReport]:
         """Generate daily reports for all employees."""
-        if target_date is None:
-            target_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        target_date = self._normalize_target_date(target_date)
 
         logger.info("Generating reports for date: %s", target_date.strftime("%Y-%m-%d"))
 
@@ -161,12 +169,14 @@ class DailyReportGenerator:
 
         for task in completed_tasks:
             # Include if closed on target date
-            if task.date_closed and target_date <= task.date_closed < next_day:
+            closed_at = self._to_report_timezone(task.date_closed)
+            if closed_at and target_date <= closed_at < next_day:
                 all_tasks.append(task)
 
         for task in active_tasks:
             # Include if due date is on or before target date
-            if task.due_date and task.due_date <= next_day:
+            due_at = self._to_report_timezone(task.due_date)
+            if due_at and due_at <= next_day:
                 all_tasks.append(task)
 
         return all_tasks
@@ -223,16 +233,16 @@ class DailyReportGenerator:
 
         for task in tasks:
             # Determine if task is completed
-            is_completed = bool(
-                task.date_closed and target_date <= task.date_closed < next_day
-            )
+            closed_at = self._to_report_timezone(task.date_closed)
+            due_at = self._to_report_timezone(task.due_date)
+            is_completed = bool(closed_at and target_date <= closed_at < next_day)
 
             # Calculate overdue status
             is_overdue = False
             days_overdue = 0
-            if task.due_date and task.due_date < target_date:
+            if due_at and due_at < target_date:
                 is_overdue = True
-                days_overdue = (target_date - task.due_date).days
+                days_overdue = (target_date - due_at).days
 
             # Create task stats
             task_stat = TaskStats(
@@ -261,8 +271,8 @@ class DailyReportGenerator:
                 report.priority_stats[priority_key].not_completed += 1
 
             # Check for rescheduled tasks (due date was today but not completed)
-            if not is_completed and task.due_date:
-                if target_date <= task.due_date < next_day:
+            if not is_completed and due_at:
+                if target_date <= due_at < next_day:
                     report.rescheduled_tasks.append(task.name)
 
             # Check for overdue tasks (more than 1 day)
@@ -270,6 +280,23 @@ class DailyReportGenerator:
                 report.overdue_tasks.append(task.name)
 
         return report
+
+    def _normalize_target_date(self, target_date: Optional[datetime]) -> datetime:
+        if target_date is None:
+            base_date = datetime.now(tz=self._report_tz)
+        else:
+            if target_date.tzinfo is None:
+                base_date = target_date.replace(tzinfo=self._report_tz)
+            else:
+                base_date = target_date.astimezone(self._report_tz)
+        return base_date.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def _to_report_timezone(self, value: Optional[datetime]) -> Optional[datetime]:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(self._report_tz)
 
     @staticmethod
     def _normalize_priority(priority: Optional[str]) -> str:
