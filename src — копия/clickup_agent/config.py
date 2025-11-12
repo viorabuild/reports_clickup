@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # Agent behaviour
     batch_size: int = Field(10, env="TASK_BATCH_SIZE")
     dry_run: bool = Field(False, env="DRY_RUN")
+    report_timezone: str = Field("UTC", env="REPORT_TIMEZONE")
 
     model_config = SettingsConfigDict(
         env_file=".env",
