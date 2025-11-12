@@ -26,6 +26,7 @@ class TaskStats(BaseModel):
     is_completed: bool
     is_overdue: bool
     days_overdue: int = 0
+    is_without_due_date: bool = False
 
 
 class PriorityStats(BaseModel):
@@ -64,10 +65,22 @@ class EmployeeReport(BaseModel):
         if self.completed_tasks:
             for task in self.completed_tasks:
                 time_info = f"(План: {task.time_estimate_hours:.1f}ч / Факт: {task.time_spent_hours:.1f}ч)"
-                lines.append(f"  {task.name} {task.priority_emoji} {time_info}")
+                note = " ⚠️ без дедлайна" if task.is_without_due_date else ""
+                lines.append(f"  {task.name} {task.priority_emoji} {time_info}{note}")
         else:
             lines.append("  Нет выполненных задач")
         lines.append("")
+
+        if self.not_completed_tasks:
+            lines.append(f"⌛ В работе: {len(self.not_completed_tasks)}")
+            for task in self.not_completed_tasks:
+                time_info = f"(План: {task.time_estimate_hours:.1f}ч / Факт: {task.time_spent_hours:.1f}ч)"
+                note = " ⚠️ без дедлайна" if task.is_without_due_date else ""
+                status_suffix = " (просрочена)" if task.is_overdue else ""
+                lines.append(
+                    f"  {task.name} {task.priority_emoji} {time_info}{note}{status_suffix}"
+                )
+            lines.append("")
 
         # Time statistics
         time_diff = self.total_actual_hours - self.total_planned_hours
@@ -166,7 +179,14 @@ class DailyReportGenerator:
 
         for task in active_tasks:
             # Include if due date is on or before target date
+            include_task = False
             if task.due_date and task.due_date <= next_day:
+                include_task = True
+            elif not task.due_date:
+                activity_dates = [dt for dt in [task.date_updated, task.date_created] if dt]
+                include_task = any(target_date <= dt < next_day for dt in activity_dates)
+
+            if include_task:
                 all_tasks.append(task)
 
         return all_tasks
@@ -234,15 +254,25 @@ class DailyReportGenerator:
                 is_overdue = True
                 days_overdue = (target_date - task.due_date).days
 
+            is_without_due_date = task.due_date is None
+
+            time_estimate_hours = task.get_time_estimate_hours()
+            time_spent_hours = task.get_time_spent_hours()
+
+            if is_without_due_date:
+                time_estimate_hours = 0.0
+                time_spent_hours = 0.0
+
             # Create task stats
             task_stat = TaskStats(
                 name=task.name,
                 priority_emoji=task.get_priority_emoji(),
-                time_estimate_hours=task.get_time_estimate_hours(),
-                time_spent_hours=task.get_time_spent_hours(),
+                time_estimate_hours=time_estimate_hours,
+                time_spent_hours=time_spent_hours,
                 is_completed=is_completed,
                 is_overdue=is_overdue,
                 days_overdue=days_overdue,
+                is_without_due_date=is_without_due_date,
             )
 
             # Add to appropriate list
