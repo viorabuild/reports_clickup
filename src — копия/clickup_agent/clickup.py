@@ -55,12 +55,10 @@ class ClickUpClient:
         limit = limit or self._settings.task_fetch_limit
         params = {
             "archived": str(include_closed).lower(),
-            "page": 0,
             "order_by": "updated",
             "reverse": "true",
             "subtasks": "true",
             "include_closed": str(include_closed).lower(),
-            "limit": limit,
         }
 
         if statuses:
@@ -81,9 +79,32 @@ class ClickUpClient:
 
         path = self._resolve_task_list_path()
 
-        data = self._request("GET", path, params=params)
-        tasks_payload = data.get("tasks", [])
-        tasks = [ClickUpTask.from_api(task) for task in tasks_payload]
+        tasks: List[ClickUpTask] = []
+        page = 0
+
+        while len(tasks) < limit:
+            remaining = limit - len(tasks)
+            if remaining <= 0:
+                break
+
+            page_params = {
+                **params,
+                "page": page,
+                "limit": remaining,
+            }
+
+            data = self._request("GET", path, params=page_params)
+            tasks_payload = data.get("tasks", [])
+
+            if not tasks_payload:
+                break
+
+            tasks.extend(ClickUpTask.from_api(task) for task in tasks_payload)
+
+            if data.get("last_page"):
+                break
+
+            page += 1
 
         logger.info("Fetched %d tasks from ClickUp", len(tasks))
         return tasks[:limit]
