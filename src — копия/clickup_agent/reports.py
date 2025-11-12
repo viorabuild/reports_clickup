@@ -132,9 +132,14 @@ class DailyReportGenerator:
         # Group tasks by employee
         employee_tasks = self._group_tasks_by_employee(all_tasks)
 
-        # Generate reports for each employee
+        # Generate reports for each employee in stable order
+        sorted_employees = sorted(
+            employee_tasks.items(),
+            key=lambda item: self._employee_sort_key(item[0], item[1]),
+        )
+
         reports = []
-        for employee_id, tasks in employee_tasks.items():
+        for employee_id, tasks in sorted_employees:
             report = self._generate_employee_report(employee_id, tasks, target_date)
             reports.append(report)
 
@@ -195,16 +200,7 @@ class DailyReportGenerator:
         target_date: datetime,
     ) -> EmployeeReport:
         """Generate report for a single employee."""
-        # Get employee name from first task
-        employee_name = "Неизвестный"
-        if tasks and tasks[0].assignees:
-            for assignee in tasks[0].assignees:
-                if assignee.get("id") == employee_id:
-                    employee_name = assignee.get("username", assignee.get("email", "Неизвестный"))
-                    break
-
-        if employee_id == "unassigned":
-            employee_name = "Без исполнителя"
+        employee_name = self._resolve_employee_name(employee_id, tasks)
 
         report = EmployeeReport(
             employee_id=employee_id,
@@ -221,7 +217,7 @@ class DailyReportGenerator:
 
         next_day = target_date + timedelta(days=1)
 
-        for task in tasks:
+        for task in self._sort_tasks_for_report(tasks, target_date):
             # Determine if task is completed
             is_completed = bool(
                 task.date_closed and target_date <= task.date_closed < next_day
@@ -283,3 +279,61 @@ class DailyReportGenerator:
             return "normal"
         else:
             return "low"
+
+    def _resolve_employee_name(
+        self, employee_id: str, tasks: List[ClickUpTask]
+    ) -> str:
+        """Determine employee display name for the report."""
+
+        if employee_id == "unassigned":
+            return "Без исполнителя"
+
+        for task in tasks:
+            for assignee in task.assignees or []:
+                if assignee.get("id") == employee_id:
+                    username = assignee.get("username")
+                    if username and username.strip():
+                        return username.strip()
+                    email = assignee.get("email")
+                    if email and email.strip():
+                        return email.strip()
+
+        return "Неизвестный"
+
+    def _employee_sort_key(
+        self, employee_id: str, tasks: List[ClickUpTask]
+    ) -> tuple[str, str]:
+        """Return stable sort key for employee grouping."""
+
+        employee_name = self._resolve_employee_name(employee_id, tasks)
+        if employee_name and employee_name != "Неизвестный":
+            primary = employee_name
+        else:
+            primary = str(employee_id)
+
+        return (primary.lower(), str(employee_id).lower())
+
+    def _sort_tasks_for_report(
+        self, tasks: List[ClickUpTask], target_date: datetime
+    ) -> List[ClickUpTask]:
+        """Return tasks sorted for deterministic report output."""
+
+        next_day = target_date + timedelta(days=1)
+
+        def sort_key(task: ClickUpTask) -> tuple:
+            completed_time: Optional[datetime]
+            if task.date_closed and target_date <= task.date_closed < next_day:
+                completed_time = task.date_closed
+            else:
+                completed_time = None
+
+            due_time = task.due_date
+
+            primary_time = completed_time or due_time or datetime.max
+            return (
+                primary_time,
+                (task.name or "").lower(),
+                task.id,
+            )
+
+        return sorted(tasks, key=sort_key)
