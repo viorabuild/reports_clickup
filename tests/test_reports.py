@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional
 
 from clickup_agent.config import Settings
@@ -62,28 +62,28 @@ def test_fetch_all_tasks_applies_status_and_assignee_filters() -> None:
             id="completed-mine",
             name="Completed task",
             status="completed",
-            date_closed=target_date + timedelta(hours=3),
+            date_closed=(target_date + timedelta(hours=3)).replace(tzinfo=timezone.utc),
             assignees=[{"id": "123"}],
         ),
         ClickUpTask(
             id="progress-mine",
             name="In progress task",
             status="in progress",
-            due_date=target_date + timedelta(hours=5),
+            due_date=(target_date + timedelta(hours=5)).replace(tzinfo=timezone.utc),
             assignees=[{"id": "123"}],
         ),
         ClickUpTask(
             id="review-mine",
             name="Review task",
             status="review",
-            due_date=target_date + timedelta(hours=5),
+            due_date=(target_date + timedelta(hours=5)).replace(tzinfo=timezone.utc),
             assignees=[{"id": "123"}],
         ),
         ClickUpTask(
             id="completed-other",
             name="Completed other",
             status="completed",
-            date_closed=target_date + timedelta(hours=1),
+            date_closed=(target_date + timedelta(hours=1)).replace(tzinfo=timezone.utc),
             assignees=[{"id": "999"}],
         ),
     ]
@@ -92,7 +92,8 @@ def test_fetch_all_tasks_applies_status_and_assignee_filters() -> None:
     generator = DailyReportGenerator(dummy_client, _make_settings())
 
     filtered_tasks = generator._fetch_all_tasks(  # type: ignore[attr-defined]
-        target_date,
+        target_date.replace(tzinfo=timezone.utc),
+        (target_date + timedelta(days=1)).replace(tzinfo=timezone.utc),
         statuses=["completed", "in progress"],
         assignee="123",
     )
@@ -112,35 +113,35 @@ def test_fetch_all_tasks_filters_by_assignee_when_statuses_not_provided() -> Non
             id="closed-today",
             name="Closed today",
             status="completed",
-            date_closed=target_date + timedelta(hours=2),
+            date_closed=(target_date + timedelta(hours=2)).replace(tzinfo=timezone.utc),
             assignees=[{"id": "123"}],
         ),
         ClickUpTask(
             id="due-today",
             name="Due today",
             status="open",
-            due_date=target_date + timedelta(hours=1),
+            due_date=(target_date + timedelta(hours=1)).replace(tzinfo=timezone.utc),
             assignees=[{"id": "123"}],
         ),
         ClickUpTask(
             id="closed-previous",
             name="Closed previous",
             status="completed",
-            date_closed=target_date - timedelta(days=1),
+            date_closed=(target_date - timedelta(days=1)).replace(tzinfo=timezone.utc),
             assignees=[{"id": "123"}],
         ),
         ClickUpTask(
             id="due-future",
             name="Due future",
             status="in progress",
-            due_date=target_date + timedelta(days=2),
+            due_date=(target_date + timedelta(days=2)).replace(tzinfo=timezone.utc),
             assignees=[{"id": "123"}],
         ),
         ClickUpTask(
             id="due-other-assignee",
             name="Due other",
             status="open",
-            due_date=target_date + timedelta(hours=1),
+            due_date=(target_date + timedelta(hours=1)).replace(tzinfo=timezone.utc),
             assignees=[{"id": "999"}],
         ),
     ]
@@ -149,7 +150,8 @@ def test_fetch_all_tasks_filters_by_assignee_when_statuses_not_provided() -> Non
     generator = DailyReportGenerator(dummy_client, _make_settings())
 
     filtered_tasks = generator._fetch_all_tasks(  # type: ignore[attr-defined]
-        target_date,
+        target_date.replace(tzinfo=timezone.utc),
+        (target_date + timedelta(days=1)).replace(tzinfo=timezone.utc),
         assignee="123",
     )
 

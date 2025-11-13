@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -111,6 +111,7 @@ class DailyReportGenerator:
     def __init__(self, clickup_client: ClickUpClient, settings: Settings) -> None:
         self._clickup = clickup_client
         self._settings = settings
+        self._report_timezone = settings.report_timezone_zoneinfo
 
     def generate_reports(
         self,
@@ -119,14 +120,17 @@ class DailyReportGenerator:
         assignee: Optional[str] = None,
     ) -> List[EmployeeReport]:
         """Generate daily reports for all employees."""
-        if target_date is None:
-            target_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        target_day_local = self._normalize_target_date(target_date)
+        next_day_local = target_day_local + timedelta(days=1)
+        target_day_start_utc = target_day_local.astimezone(timezone.utc)
+        next_day_utc = next_day_local.astimezone(timezone.utc)
 
-        logger.info("Generating reports for date: %s", target_date.strftime("%Y-%m-%d"))
+        logger.info("Generating reports for date: %s", target_day_local.strftime("%Y-%m-%d"))
 
         # Fetch all tasks (completed and not completed)
         all_tasks = self._fetch_all_tasks(
-            target_date,
+            target_day_start_utc,
+            next_day_utc,
             statuses=statuses,
             assignee=assignee,
         )
@@ -140,8 +144,16 @@ class DailyReportGenerator:
 
         # Generate reports for each employee
         reports = []
-        for employee_id, tasks in employee_tasks.items():
-            report = self._generate_employee_report(employee_id, tasks, target_date)
+        for employee_id, tasks in self._iter_sorted_employee_tasks(employee_tasks):
+            employee_name = self._extract_employee_name(employee_id, tasks)
+            report = self._generate_employee_report(
+                employee_id,
+                employee_name,
+                tasks,
+                target_day_local,
+                target_day_start_utc,
+                next_day_utc,
+            )
             reports.append(report)
 
         logger.info("Generated %d employee reports", len(reports))
@@ -149,7 +161,8 @@ class DailyReportGenerator:
 
     def _fetch_all_tasks(
         self,
-        target_date: datetime,
+        target_day_start_utc: datetime,
+        next_day_utc: datetime,
         *,
         statuses: Optional[List[str]] = None,
         assignee: Optional[str] = None,
@@ -159,6 +172,9 @@ class DailyReportGenerator:
             status.strip() for status in (statuses or []) if status and status.strip()
         ]
         normalized_statuses_lower = {status.lower() for status in normalized_statuses}
+        completed_statuses = self._settings.report_completed_statuses_list
+        completed_statuses_lower = {status.lower() for status in completed_statuses}
+        active_statuses = self._settings.report_active_statuses_list
 
         if normalized_statuses:
             fetched_tasks = self._clickup.fetch_tasks(
@@ -169,14 +185,14 @@ class DailyReportGenerator:
         else:
             # Fetch completed tasks
             completed_tasks = self._clickup.fetch_tasks(
-                statuses=["closed", "complete", "completed"],
+                statuses=completed_statuses,
                 assignee=assignee,
                 include_closed=True,
             )
 
             # Fetch in-progress and open tasks
             active_tasks = self._clickup.fetch_tasks(
-                statuses=["open", "in progress", "to do"],
+                statuses=active_statuses,
                 assignee=assignee,
                 include_closed=False,
             )
@@ -184,7 +200,6 @@ class DailyReportGenerator:
             fetched_tasks = [*completed_tasks, *active_tasks]
 
         # Filter tasks by date and provided criteria
-        next_day = target_date + timedelta(days=1)
         filtered_tasks: List[ClickUpTask] = []
 
         for task in fetched_tasks:
@@ -197,12 +212,22 @@ class DailyReportGenerator:
                 continue
 
             # Include if closed on target date
-            if task.date_closed and target_date <= task.date_closed < next_day:
+            closed_on_target_day = bool(
+                task.date_closed
+                and target_day_start_utc <= task.date_closed < next_day_utc
+            )
+            if closed_on_target_day:
                 filtered_tasks.append(task)
                 continue
 
             # Include if due date is on or before target date
-            if task.due_date and task.due_date <= next_day:
+            if task.due_date and task.due_date <= next_day_utc:
+                filtered_tasks.append(task)
+                continue
+
+            # Include active tasks without due dates
+            status_lower = (task.status or "").lower()
+            if not task.due_date and status_lower not in completed_statuses_lower:
                 filtered_tasks.append(task)
 
         return filtered_tasks
@@ -227,25 +252,19 @@ class DailyReportGenerator:
     def _generate_employee_report(
         self,
         employee_id: str,
+        employee_name: str,
         tasks: List[ClickUpTask],
-        target_date: datetime,
+        target_day_local: datetime,
+        target_day_start_utc: datetime,
+        next_day_utc: datetime,
     ) -> EmployeeReport:
         """Generate report for a single employee."""
-        # Get employee name from first task
-        employee_name = "Неизвестный"
-        if tasks and tasks[0].assignees:
-            for assignee in tasks[0].assignees:
-                if assignee.get("id") == employee_id:
-                    employee_name = assignee.get("username", assignee.get("email", "Неизвестный"))
-                    break
-
-        if employee_id == "unassigned":
-            employee_name = "Без исполнителя"
+        next_day_local = target_day_local + timedelta(days=1)
 
         report = EmployeeReport(
             employee_id=employee_id,
             employee_name=employee_name,
-            date=target_date,
+            date=target_day_local,
         )
 
         # Initialize priority stats
@@ -255,20 +274,20 @@ class DailyReportGenerator:
             "low": PriorityStats(),
         }
 
-        next_day = target_date + timedelta(days=1)
-
         for task in tasks:
             # Determine if task is completed
             is_completed = bool(
-                task.date_closed and target_date <= task.date_closed < next_day
+                task.date_closed
+                and target_day_start_utc <= task.date_closed < next_day_utc
             )
 
             # Calculate overdue status
             is_overdue = False
             days_overdue = 0
-            if task.due_date and task.due_date < target_date:
+            due_local = task.due_date.astimezone(self._report_timezone) if task.due_date else None
+            if due_local and due_local < target_day_local:
                 is_overdue = True
-                days_overdue = (target_date - task.due_date).days
+                days_overdue = (target_day_local - due_local).days
 
             # Create task stats
             task_stat = TaskStats(
@@ -297,8 +316,8 @@ class DailyReportGenerator:
                 report.priority_stats[priority_key].not_completed += 1
 
             # Check for rescheduled tasks (due date was today but not completed)
-            if not is_completed and task.due_date:
-                if target_date <= task.due_date < next_day:
+            if not is_completed and due_local:
+                if target_day_local <= due_local < next_day_local:
                     report.rescheduled_tasks.append(task.name)
 
             # Check for overdue tasks (more than 1 day)
@@ -306,6 +325,44 @@ class DailyReportGenerator:
                 report.overdue_tasks.append(task.name)
 
         return report
+
+    def _normalize_target_date(self, target_date: Optional[datetime]) -> datetime:
+        """Normalize target date to start of day in report timezone."""
+
+        if target_date is None:
+            base = datetime.now(tz=self._report_timezone)
+        else:
+            if target_date.tzinfo is None:
+                base = target_date.replace(tzinfo=self._report_timezone)
+            else:
+                base = target_date.astimezone(self._report_timezone)
+        return base.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def _extract_employee_name(self, employee_id: str, tasks: List[ClickUpTask]) -> str:
+        """Determine employee display name from tasks."""
+
+        if employee_id == "unassigned":
+            return "Без исполнителя"
+
+        for task in tasks:
+            for assignee in task.assignees:
+                if str(assignee.get("id")) == str(employee_id):
+                    return assignee.get("username") or assignee.get("email") or "Неизвестный"
+
+        return "Неизвестный"
+
+    def _iter_sorted_employee_tasks(
+        self, employee_tasks: Dict[str, List[ClickUpTask]]
+    ) -> List[tuple[str, List[ClickUpTask]]]:
+        """Iterate over employee tasks in a deterministic order."""
+
+        return sorted(
+            employee_tasks.items(),
+            key=lambda item: (
+                self._extract_employee_name(item[0], item[1]).lower(),
+                str(item[0]),
+            ),
+        )
 
     @staticmethod
     def _normalize_priority(priority: Optional[str]) -> str:
