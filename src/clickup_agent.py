@@ -570,28 +570,45 @@ class ClickUpAgent:
         self._close_if_needed(task)
 
     def _update_custom_fields(self, task_id: str, assessment: AssessmentResult) -> None:
-        custom_fields = []
-        if self.config.speed_field_id:
-            custom_fields.append({"id": self.config.speed_field_id, "value": assessment.speed})
-        if self.config.quality_field_id:
-            custom_fields.append({"id": self.config.quality_field_id, "value": assessment.quality})
+        # ClickUp надёжно обновляет кастомные поля через отдельный эндпоинт
+        # POST /task/{task_id}/field/{field_id}, поэтому обновляем каждое поле по одному.
 
-        if not custom_fields:
-            return
-
-        url = f"{CLICKUP_API_BASE}/task/{task_id}"
-        payload = {"custom_fields": custom_fields}
-        response = self.session.put(url, json=payload, timeout=30)
-        try:
-            response.raise_for_status()
-        except requests.HTTPError as exc:
-            logging.error(
-                "Не удалось обновить кастомные поля для задачи %s: %s | Ответ: %s",
+        def _update_field(field_id: str, value: int, label: str) -> None:
+            if not field_id:
+                return
+            url = f"{CLICKUP_API_BASE}/task/{task_id}/field/{field_id}"
+            payload = {"value": value}
+            logging.info(
+                "Обновление кастомного поля '%s' (%s) для задачи %s: payload=%s",
+                label,
+                field_id,
                 task_id,
-                exc,
+                payload,
+            )
+            response = self.session.post(url, json=payload, timeout=30)
+            logging.info(
+                "Ответ ClickUp по полю '%s' задачи %s: status=%s, body=%s",
+                label,
+                task_id,
+                response.status_code,
                 response.text,
             )
-            raise
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                logging.error(
+                    "Не удалось обновить кастомное поле '%s' для задачи %s: %s | Ответ: %s",
+                    label,
+                    task_id,
+                    exc,
+                    response.text,
+                )
+                raise
+
+        if self.config.speed_field_id:
+            _update_field(self.config.speed_field_id, assessment.speed, "speed")
+        if self.config.quality_field_id:
+            _update_field(self.config.quality_field_id, assessment.quality, "quality")
 
     def _post_comment(self, task: Dict[str, Any], assessment: AssessmentResult) -> None:
         task_id = task.get("id")
