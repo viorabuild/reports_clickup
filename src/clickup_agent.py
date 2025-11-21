@@ -207,6 +207,11 @@ class ClickUpAgent:
                 break
 
             tasks.extend(current_tasks)
+
+            # Если задан лимит задач, не загружаем лишние страницы
+            if self.config.max_tasks is not None and len(tasks) >= self.config.max_tasks:
+                tasks = tasks[: self.config.max_tasks]
+                break
             if not payload.get("last_page"):
                 page += 1
             else:
