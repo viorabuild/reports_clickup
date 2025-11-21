@@ -835,12 +835,36 @@ class ClickUpAgent:
     def _should_close(self, task: Dict[str, Any]) -> bool:
         if not self.config.closed_status:
             return False
+
         current_status = (task.get("status") or {}).get("status", "").lower()
         triggers = self.config.normalized_auto_close_statuses
         if not triggers:
             return False
         if current_status not in triggers:
             return False
+
+        # Дополнительное условие: автозакрывать только задачи, которые завершены более недели назад.
+        done_raw = task.get("date_done") or task.get("date_closed")
+        if not done_raw:
+            return False
+
+        try:
+            done_ms = int(done_raw)
+        except (TypeError, ValueError):
+            return False
+
+        done_dt = datetime.fromtimestamp(done_ms / 1000, tz=timezone.utc)
+        now = datetime.now(timezone.utc)
+        age_days = (now - done_dt).days
+        if age_days <= 7:
+            logging.info(
+                "Пропуск автозакрытия задачи %s: дата завершения %s, прошло %s дн. (<= 7)",
+                task.get("id"),
+                done_dt.isoformat(),
+                age_days,
+            )
+            return False
+
         return True
 
     def _close_task(self, task_id: str) -> None:
