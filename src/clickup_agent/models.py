@@ -113,16 +113,31 @@ class GPTRecommendation(BaseModel):
     recommendations: List[str]
     optimizations: List[str]
     optimal_time_minutes: Optional[int] = None
+    speed_score: Optional[int] = None
+    quality_score: Optional[int] = None
+    speed_reason: Optional[str] = None
+    quality_reason: Optional[str] = None
 
     def to_markdown(self) -> str:
         """Render recommendation as markdown block for ClickUp custom field."""
 
-        sections = [
-            ("Оценка сложности", [self.complexity]),
-            ("Потенциальные риски", self.risks),
-            ("Рекомендации", self.recommendations),
-            ("Оптимизации", self.optimizations),
-        ]
+        sections = []
+        if self.speed_score is not None or self.speed_reason:
+            sections.append(
+                ("Оценка скорости", [self._format_score(self.speed_score, self.speed_reason)])
+            )
+        if self.quality_score is not None or self.quality_reason:
+            sections.append(
+                ("Оценка качества", [self._format_score(self.quality_score, self.quality_reason)])
+            )
+        sections.extend(
+            [
+                ("Оценка сложности", [self.complexity]),
+                ("Потенциальные риски", self.risks),
+                ("Рекомендации", self.recommendations),
+                ("Оптимизации", self.optimizations),
+            ]
+        )
 
         lines = []
         for title, items in sections:
@@ -134,6 +149,13 @@ class GPTRecommendation(BaseModel):
                     lines.append(f"- {item.strip()}")
             lines.append("")
         return "\n".join(lines).strip()
+
+    @staticmethod
+    def _format_score(score: Optional[int], reason: Optional[str]) -> str:
+        if score is None:
+            return "—"
+        reason_part = f" — {reason.strip()}" if reason else ""
+        return f"{score}/5{reason_part}"
 
 
 class TaskAnalysisResult(BaseModel):

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     clickup_list_id: Optional[str] = Field(None, env="CLICKUP_LIST_ID")
     clickup_team_id: Optional[str] = Field(None, env="CLICKUP_TEAM_ID")
     clickup_custom_field_id: str = Field(..., env="CLICKUP_CUSTOM_FIELD_ID")
+    clickup_speed_field_id: Optional[str] = Field(None, env="CLICKUP_SPEED_FIELD_ID")
+    clickup_quality_field_id: Optional[str] = Field(None, env="CLICKUP_QUALITY_FIELD_ID")
     task_fetch_limit: int = Field(20, env="TASK_FETCH_LIMIT")
     clickup_task_filter_status: Optional[str] = Field(
         None, env="CLICKUP_TASK_FILTER_STATUS"

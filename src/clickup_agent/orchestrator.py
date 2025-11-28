@@ -35,10 +35,16 @@ class TaskOrchestrator:
     ) -> List[TaskAnalysisResult]:
         """Execute the end-to-end processing pipeline."""
 
+        statuses_to_use: Optional[Sequence[str]] = (
+            statuses or self._settings.report_completed_statuses_list
+        )
+
         try:
             tasks = self._clickup.fetch_tasks(
-                statuses=statuses,
+                limit=1,
+                statuses=statuses_to_use,
                 assignee=assignee,
+                include_closed=True,
             )
         except (ClickUpAPIError, ValueError) as exc:
             logger.exception("Failed to fetch tasks from ClickUp.")
@@ -49,6 +55,7 @@ class TaskOrchestrator:
             return []
 
         results: List[TaskAnalysisResult] = []
+        tasks = tasks[:1]  # обрабатываем по одной задаче за запуск
 
         for chunk in self._chunk(tasks, self._settings.batch_size):
             logger.info("Processing batch of %d tasks", len(chunk))
@@ -61,6 +68,7 @@ class TaskOrchestrator:
                         field_id=None,
                         value=rendered,
                     )
+                    self._update_scores(task.id, recommendation)
                     comment_body = self._build_comment(task, recommendation, rendered)
                     self._clickup.add_comment(task.id, comment_body, notify_all=False)
                     results.append(
@@ -93,6 +101,28 @@ class TaskOrchestrator:
                 break
             yield batch
 
+    def _update_scores(self, task_id: str, rec: GPTRecommendation) -> None:
+        """Update speed and quality custom fields if configured."""
+        if rec.speed_score is not None and self._settings.clickup_speed_field_id:
+            try:
+                self._clickup.update_task_custom_field(
+                    task_id=task_id,
+                    field_id=self._settings.clickup_speed_field_id,
+                    value=rec.speed_score,
+                )
+            except ClickUpAPIError as exc:
+                logger.error("Failed to update speed for task %s: %s", task_id, exc)
+
+        if rec.quality_score is not None and self._settings.clickup_quality_field_id:
+            try:
+                self._clickup.update_task_custom_field(
+                    task_id=task_id,
+                    field_id=self._settings.clickup_quality_field_id,
+                    value=rec.quality_score,
+                )
+            except ClickUpAPIError as exc:
+                logger.error("Failed to update quality for task %s: %s", task_id, exc)
+
     def _build_comment(self, task: ClickUpTask, rec: GPTRecommendation, rendered: str) -> str:
         """Compose a human-friendly comment for ClickUp."""
 
@@ -123,6 +153,29 @@ class TaskOrchestrator:
             lines.append(
                 f"Оценка оптимального времени: ~{rec.optimal_time_minutes} мин "
                 f"({hours:.1f} ч)"
+            )
+
+        lines.append("")
+        lines.append("Почему такая оценка:")
+        lines.append(f"- Сложность: {rec.complexity or 'не определена'}")
+        if rec.risks:
+            lines.append(f"- Ключевые риски: {', '.join(rec.risks)}")
+        if rec.recommendations:
+            lines.append(f"- Обоснование рекомендаций: {', '.join(rec.recommendations)}")
+        if rec.speed_score is not None:
+            lines.append(
+                f"- Скорость {rec.speed_score}/5: "
+                f"{rec.speed_reason or 'без пояснения'}"
+            )
+        if rec.quality_score is not None:
+            lines.append(
+                f"- Качество {rec.quality_score}/5: "
+                f"{rec.quality_reason or 'без пояснения'}"
+            )
+        if rec.optimal_time_minutes is not None:
+            lines.append(
+                f"- Оптимальное время (по модели): {rec.optimal_time_minutes} мин "
+                "(учёт описания/приоритета/статуса)"
             )
 
         lines.append("")

@@ -18,7 +18,8 @@ SYSTEM_PROMPT = (
     "Ты опытный аналитик проектов. Твоя задача — изучать карточки ClickUp "
     "и предлагать конкретные рекомендации. Говори лаконично, по делу, "
     "на русском языке, избегай конфиденциальной информации. Ответ не длиннее 300 слов.\n"
-    "Дополнительно оцени, сколько времени (в минутах) должна была занять задача, исходя из описания и приоритетов."
+    "Дополнительно оцени, сколько времени (в минутах) должна была занять задача, исходя из описания и приоритетов.\n"
+    "Дай числовые оценки скорости и качества (1-5) и кратко поясни каждую."
 )
 
 
@@ -82,6 +83,8 @@ class GPTAnalyzer:
             "recommendations — массив рекомендаций по выполнению.\n"
             "optimizations — массив предложений по оптимизации.\n"
             "optimal_time_minutes — оценка оптимального времени выполнения в минутах (целое число).\n"
+            "speed_score — целое 1-5 (скорость выполнения) + speed_reason — кратко, почему.\n"
+            "quality_score — целое 1-5 (качество результата) + quality_reason — кратко, почему.\n"
             "Если информации мало, делай разумные предположения и объясняй их в списках."
         )
 
@@ -96,6 +99,10 @@ class GPTAnalyzer:
                 or payload.get("optimal_time")
                 or payload.get("optimal_minutes")
             ),
+            "speed_score": self._parse_optional_int(payload.get("speed_score")),
+            "quality_score": self._parse_optional_int(payload.get("quality_score")),
+            "speed_reason": self._normalize_text(payload.get("speed_reason")),
+            "quality_reason": self._normalize_text(payload.get("quality_reason")),
         }
 
     @staticmethod
@@ -136,3 +143,10 @@ class GPTAnalyzer:
             return int(round(float(value)))
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _normalize_text(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
