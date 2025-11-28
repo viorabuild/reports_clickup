@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = Field(..., env="OPENAI_API_KEY")
     openai_model: str = Field("gpt-4o-mini", env="OPENAI_MODEL")
+    openai_base_url: Optional[str] = Field(None, env="OPENAI_BASE_URL")
 
     # Agent behaviour
     batch_size: int = Field(10, env="TASK_BATCH_SIZE")

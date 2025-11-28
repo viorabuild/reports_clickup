@@ -30,7 +30,10 @@ class GPTAnalyzer:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._client = OpenAI(api_key=settings.openai_api_key)
+        client_kwargs = {"api_key": settings.openai_api_key}
+        if settings.openai_base_url:
+            client_kwargs["base_url"] = settings.openai_base_url
+        self._client = OpenAI(**client_kwargs)
 
     def analyze(self, task: ClickUpTask) -> GPTRecommendation:
         """Generate a recommendation for a task."""
