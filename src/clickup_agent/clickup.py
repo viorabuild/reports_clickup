@@ -56,7 +56,8 @@ class ClickUpClient:
         if limit <= 0:
             return []
         params = {
-            "archived": str(include_closed).lower(),
+            # Не трогаем архив: нужен живой бэклог, даже если include_closed=true
+            "archived": "false",
             "order_by": "updated",
             "reverse": "true",
             "subtasks": "true",

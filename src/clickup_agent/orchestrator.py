@@ -41,7 +41,7 @@ class TaskOrchestrator:
 
         try:
             tasks = self._clickup.fetch_tasks(
-                limit=1,
+                limit=self._settings.task_fetch_limit,
                 statuses=statuses_to_use,
                 assignee=assignee,
                 include_closed=True,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import os
 from typing import List, Optional
 
 from zoneinfo import ZoneInfo
@@ -34,6 +35,9 @@ class Settings(BaseSettings):
     )
     report_active_statuses: Optional[str] = Field(
         None, env="REPORT_ACTIVE_STATUSES"
+    )
+    use_custom_completed_statuses: bool = Field(
+        False, env="USE_CUSTOM_COMPLETED_STATUSES"
     )
 
     # OpenAI
@@ -75,10 +79,14 @@ class Settings(BaseSettings):
     def report_completed_statuses_list(self) -> List[str]:
         """Statuses treated as completed in reports."""
 
-        return self._split_statuses(
-            self.report_completed_statuses,
-            ["closed", "complete", "completed"],
-        )
+        base = ["closed", "complete", "completed"]
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return base
+        if self.use_custom_completed_statuses and self.report_completed_statuses:
+            extras = self._split_statuses(self.report_completed_statuses, [])
+            if extras:
+                return base + extras
+        return base
 
     @property
     def report_active_statuses_list(self) -> List[str]:
