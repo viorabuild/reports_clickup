@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = (
     "Ты опытный аналитик проектов. Твоя задача — изучать карточки ClickUp "
     "и предлагать конкретные рекомендации. Говори лаконично, по делу, "
-    "на русском языке, избегай конфиденциальной информации. Ответ не длиннее 300 слов."
+    "на русском языке, избегай конфиденциальной информации. Ответ не длиннее 300 слов.\n"
+    "Дополнительно оцени, сколько времени (в минутах) должна была занять задача, исходя из описания и приоритетов."
 )
 
 
@@ -34,6 +35,10 @@ class GPTAnalyzer:
         if settings.openai_base_url:
             client_kwargs["base_url"] = settings.openai_base_url
         self._client = OpenAI(**client_kwargs)
+        self._response_format = {"type": "json_object"}
+        if settings.openai_base_url:
+            # Локальные серверы OpenAI-совместимых моделей часто не поддерживают json_object
+            self._response_format = {"type": "text"}
 
     def analyze(self, task: ClickUpTask) -> GPTRecommendation:
         """Generate a recommendation for a task."""
@@ -76,6 +81,7 @@ class GPTAnalyzer:
             "risks — массив кратких рисков.\n"
             "recommendations — массив рекомендаций по выполнению.\n"
             "optimizations — массив предложений по оптимизации.\n"
+            "optimal_time_minutes — оценка оптимального времени выполнения в минутах (целое число).\n"
             "Если информации мало, делай разумные предположения и объясняй их в списках."
         )
 
@@ -85,6 +91,11 @@ class GPTAnalyzer:
             "risks": self._normalize_list(payload.get("risks")),
             "recommendations": self._normalize_list(payload.get("recommendations")),
             "optimizations": self._normalize_list(payload.get("optimizations")),
+            "optimal_time_minutes": self._parse_optional_int(
+                payload.get("optimal_time_minutes")
+                or payload.get("optimal_time")
+                or payload.get("optimal_minutes")
+            ),
         }
 
     @staticmethod
@@ -105,7 +116,7 @@ class GPTAnalyzer:
         completion = self._client.chat.completions.create(
             model=self._settings.openai_model,
             temperature=0.2,
-            response_format={"type": "json_object"},
+            response_format=self._response_format,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
@@ -116,3 +127,12 @@ class GPTAnalyzer:
         if not message.content:
             raise GPTAnalysisError("Empty response from GPT API.")
         return message.content
+
+    @staticmethod
+    def _parse_optional_int(value: Any) -> Optional[int]:
+        if value in (None, ""):
+            return None
+        try:
+            return int(round(float(value)))
+        except (TypeError, ValueError):
+            return None

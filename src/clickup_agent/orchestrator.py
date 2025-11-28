@@ -61,6 +61,8 @@ class TaskOrchestrator:
                         field_id=None,
                         value=rendered,
                     )
+                    comment_body = self._build_comment(task, recommendation, rendered)
+                    self._clickup.add_comment(task.id, comment_body, notify_all=False)
                     results.append(
                         TaskAnalysisResult(
                             task=task,
@@ -90,3 +92,41 @@ class TaskOrchestrator:
             if not batch:
                 break
             yield batch
+
+    def _build_comment(self, task: ClickUpTask, rec: GPTRecommendation, rendered: str) -> str:
+        """Compose a human-friendly comment for ClickUp."""
+
+        lines = [
+            "AI-рекомендация по задаче:",
+            f"Название: {task.name}",
+            "",
+            "Основные рекомендации:",
+        ]
+        if rec.recommendations:
+            lines.extend([f"- {item}" for item in rec.recommendations])
+        else:
+            lines.append("- —")
+
+        if rec.optimizations:
+            lines.append("")
+            lines.append("Оптимизации:")
+            lines.extend([f"- {item}" for item in rec.optimizations])
+
+        if rec.risks:
+            lines.append("")
+            lines.append("Риски:")
+            lines.extend([f"- {item}" for item in rec.risks])
+
+        if rec.optimal_time_minutes is not None:
+            hours = rec.optimal_time_minutes / 60
+            lines.append("")
+            lines.append(
+                f"Оценка оптимального времени: ~{rec.optimal_time_minutes} мин "
+                f"({hours:.1f} ч)"
+            )
+
+        lines.append("")
+        lines.append("Полный текст (для поля):")
+        lines.append(rendered)
+
+        return "\n".join(lines)

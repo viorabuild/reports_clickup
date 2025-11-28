@@ -112,6 +112,7 @@ class GPTRecommendation(BaseModel):
     risks: List[str]
     recommendations: List[str]
     optimizations: List[str]
+    optimal_time_minutes: Optional[int] = None
 
     def to_markdown(self) -> str:
         """Render recommendation as markdown block for ClickUp custom field."""

@@ -1,0 +1,2 @@
+[console_scripts]
+clickup-agent = clickup_agent.__main__:main

@@ -135,6 +135,17 @@ class ClickUpClient:
 
         self._request("PUT", path, json=payload)
 
+    def add_comment(self, task_id: str, text: str, notify_all: bool = False) -> None:
+        """Post a comment to a task."""
+        if not text.strip():
+            return
+        path = f"/task/{task_id}/comment"
+        payload = {"comment_text": text, "notify_all": notify_all}
+        if self._settings.dry_run:
+            logger.info("[dry-run] Would add comment to task %s: %s", task_id, text)
+            return
+        self._request("POST", path, json=payload)
+
     def _resolve_task_list_path(self) -> str:
         if self._settings.clickup_list_id:
             return f"/list/{self._settings.clickup_list_id}/task"
