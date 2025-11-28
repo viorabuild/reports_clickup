@@ -24,11 +24,11 @@ SYSTEM_PROMPT = (
 
 
 class GPTAnalysisError(Exception):
-    """Raised when GPT analysis fails."""
+    """Raised when GPT analysis fails"""
 
 
 class GPTAnalyzer:
-    """Encapsulates interaction with OpenAI models."""
+    """Encapsulates interaction with OpenAI models"""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
