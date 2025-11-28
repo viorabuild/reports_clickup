@@ -26,3 +26,6 @@ dev = [
     "pytest>=7.4",
     "ruff>=0.3",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
