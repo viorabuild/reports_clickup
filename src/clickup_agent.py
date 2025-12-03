@@ -280,6 +280,44 @@ class ClickUpAgent:
         self._task_cache[task_id] = data
         return data
 
+    def _is_status_closed(self, task: Dict[str, Any]) -> bool:
+        closed_status = (self.config.closed_status or "").strip().lower()
+        if not closed_status:
+            return False
+        status_field = (task.get("status") or {}).get("status", "")
+        current_status = str(status_field or "").strip().lower()
+        return bool(current_status) and current_status == closed_status
+
+    def _task_already_scored(self, task: Dict[str, Any]) -> bool:
+        if not self.config.speed_field_id or not self.config.quality_field_id:
+            return False
+        return (
+            self._custom_field_has_value(task, self.config.speed_field_id)
+            and self._custom_field_has_value(task, self.config.quality_field_id)
+        )
+
+    @staticmethod
+    def _custom_field_has_value(task: Dict[str, Any], field_id: str) -> bool:
+        if not field_id:
+            return False
+        custom_fields = task.get("custom_fields")
+        if not isinstance(custom_fields, list):
+            return False
+        target_id = str(field_id).strip()
+        if not target_id:
+            return False
+        for field in custom_fields:
+            candidate_id = str(field.get("id") or "").strip()
+            if candidate_id != target_id:
+                continue
+            value = field.get("value")
+            if value is None:
+                continue
+            if isinstance(value, str) and not value.strip():
+                continue
+            return True
+        return False
+
     def _should_process_task(self, task: Dict[str, Any]) -> bool:
         status = (task.get("status") or {}).get("status", "").lower()
         targets = self.config.normalized_target_statuses
@@ -291,6 +329,18 @@ class ClickUpAgent:
                 targets,
             )
             return False
+
+        task_id = str(task.get("id") or "").strip()
+        details = self._get_task_details(task_id) if task_id else None
+        source = details or task
+        if self._is_status_closed(source):
+            logging.debug("Пропуск задачи %s: статус закрыт (%s)", task_id, self.config.closed_status)
+            return False
+
+        if self._task_already_scored(source):
+            logging.debug("Пропуск задачи %s: кастомные поля скорости/качества уже заполнены", task_id)
+            return False
+
         return True
 
     def _get_assessment(self, task: Dict[str, Any]) -> AssessmentResult:
