@@ -30,7 +30,7 @@ class AgentConfig:
     list_id: Optional[str] = None
     space_id: Optional[str] = None
     lm_base_url: str = "http://127.0.0.1:1234"
-    lm_model: str = "qwen/qwen3-vl-4b"
+    lm_model: str = "openai/gpt-oss-20b"
     lm_temperature: float = 0.2
     target_statuses: Optional[List[str]] = None
     auto_close_statuses: Optional[List[str]] = None
@@ -121,7 +121,7 @@ def build_config() -> AgentConfig:
         speed_field_id=required["CLICKUP_SPEED_FIELD_ID"],
         quality_field_id=required["CLICKUP_QUALITY_FIELD_ID"],
         lm_base_url=os.getenv("LM_STUDIO_BASE_URL", "http://127.0.0.1:1234"),
-        lm_model=os.getenv("LM_STUDIO_MODEL", "qwen/qwen3-vl-4b"),
+        lm_model=os.getenv("LM_STUDIO_MODEL", "openai/gpt-oss-20b"),
         lm_temperature=float(os.getenv("LM_TEMPERATURE", "0.2")),
         target_statuses=_split(target_statuses),
         auto_close_statuses=_split(auto_close_statuses),
