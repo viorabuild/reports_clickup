@@ -538,7 +538,7 @@ class ClickUpAgent:
                 },
             ],
             "temperature": self.config.lm_temperature,
-            "max_tokens": 2500,
+            "max_tokens": 10000,
         }
 
         response_payload = self._call_lm_completion(payload)
