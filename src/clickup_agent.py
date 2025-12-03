@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
@@ -294,8 +294,13 @@ class ClickUpAgent:
         return True
 
     def _get_assessment(self, task: Dict[str, Any]) -> AssessmentResult:
-        task_summary, time_metrics = self._build_task_context(task)
-        history_records = self._history_records_for_prompt()
+        task_id = str(task.get("id") or "").strip()
+        task_details = self._get_task_details(task_id) if task_id else None
+        task_summary, time_metrics = self._build_task_context(task, details=task_details)
+        source = task_details or task
+        assignee_id, assignee_name, assignee_role = self._extract_primary_assignee(source)
+
+        history_records = self._history_records_for_prompt(assignee_id)
         history_lines: List[str] = []
         for record in history_records:
             task_name = record.get("task_name", "Без названия")
@@ -317,9 +322,11 @@ class ClickUpAgent:
 
         history_section = ""
         if history_lines:
-            history_section = (
-                "\n\nИСТОРИЯ ИСПОЛНИТЕЛЯ (для контекстной корректировки):\n" + "\n".join(history_lines)
-            )
+            history_title = "ИСТОРИЯ ИСПОЛНИТЕЛЯ"
+            if assignee_name and assignee_name.lower() != "не указан":
+                history_title += f" {assignee_name}"
+            history_title += " (для контекстной корректировки)"
+            history_section = "\n\n" + history_title + ":\n" + "\n".join(history_lines)
 
         avg_speed_history_display = (
             f"{avg_speed_history:.2f}" if avg_speed_history is not None else "нет данных"
@@ -328,10 +335,6 @@ class ClickUpAgent:
             f"{avg_quality_history:.2f}" if avg_quality_history is not None else "нет данных"
         )
         avg_score_display = f"{avg_score:.2f}" if avg_score is not None else "нет данных"
-
-        task_id = str(task.get("id") or "").strip()
-        task_details = self._get_task_details(task_id) if task_id else None
-        source = task_details or task
 
         planned_minutes = time_metrics.get("planned_minutes")
         tracked_minutes = time_metrics.get("tracked_minutes")
@@ -372,21 +375,6 @@ class ClickUpAgent:
             if isinstance(comments, list):
                 comments_count = len(comments)
         activity_count = source.get("activity_count")
-
-        assignees = source.get("assignees") or []
-        assignee_name = "не указан"
-        assignee_role = "не указана"
-        if assignees and isinstance(assignees, list):
-            first_assignee = assignees[0]
-            if isinstance(first_assignee, dict):
-                assignee_name = (
-                    first_assignee.get("username")
-                    or first_assignee.get("email")
-                    or first_assignee.get("user")
-                    or first_assignee.get("id")
-                    or "не указан"
-                )
-                assignee_role = first_assignee.get("role") or "не указана"
 
         errors_count = source.get("errors_count", "нет данных")
         rework_time = source.get("rework_time", "нет данных")
@@ -664,7 +652,10 @@ class ClickUpAgent:
         response = self.session.post(comment_endpoint, json=payload, timeout=30)
         response.raise_for_status()
 
-    def _history_records_for_prompt(self) -> List[Dict[str, Any]]:
+    def _history_records_for_prompt(
+        self,
+        assignee_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         if self.history_limit <= 0:
             return []
         if not self.history_path.exists():
@@ -688,9 +679,19 @@ class ClickUpAgent:
                 logging.warning("Пропуск поврежденной записи истории: %s", payload)
                 continue
             records.append(data)
-        if not records:
+        filtered = records
+        normalized_assignee_id = (
+            str(assignee_id).strip() if assignee_id not in (None, "") else ""
+        )
+        if normalized_assignee_id:
+            filtered = [
+                record
+                for record in records
+                if str(record.get("assignee_id") or "").strip() == normalized_assignee_id
+            ]
+        if not filtered:
             return []
-        return records[-self.history_limit :]
+        return filtered[-self.history_limit :]
 
     def _append_history_entry(self, task: Dict[str, Any], assessment: AssessmentResult) -> None:
         if self.dry_run:
@@ -703,6 +704,7 @@ class ClickUpAgent:
         task_name = (task.get("name") or f"Задача {task_id}").strip()
         task_url = task.get("url") or f"https://app.clickup.com/t/{task_id}"
         timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+        assignee_id, assignee_name, _ = self._extract_primary_assignee(task)
         record = {
             "task_id": task_id,
             "task_name": task_name,
@@ -718,12 +720,15 @@ class ClickUpAgent:
             "context_adjustment": assessment.context_adjustment,
             "trend": assessment.trend,
             "performer_level_match": assessment.performer_level_match,
+            "assignee_id": assignee_id,
+            "assignee_name": assignee_name,
             "timestamp": timestamp,
         }
         entry_lines = [
             f"<!-- {json.dumps(record, ensure_ascii=False)} -->",
             f"## [{task_name}]({task_url})",
             f"- Task ID: {task_id}",
+            f"- Исполнитель: {assignee_name}",
             f"- Скорость работы: {assessment.speed}/5 — {assessment.speed_reason}",
             f"- Качество работы: {assessment.quality}/5 — {assessment.quality_reason}",
             f"- Плановое время: {self._format_minutes(assessment.planned_time_minutes)}",
@@ -876,11 +881,17 @@ class ClickUpAgent:
         response = self.session.put(url, json=payload, timeout=30)
         response.raise_for_status()
 
-    def _build_task_context(self, task: Dict[str, Any]) -> tuple[str, Dict[str, Optional[int]]]:
+    def _build_task_context(
+        self,
+        task: Dict[str, Any],
+        details: Optional[Dict[str, Any]] = None,
+    ) -> tuple[str, Dict[str, Optional[int]]]:
         task_id = str(task.get("id") or "").strip()
-        details = self._get_task_details(task_id) if task_id else None
+        resolved_details = (
+            details if details is not None else (self._get_task_details(task_id) if task_id else None)
+        )
         description = (
-            (details or {}).get("description")
+            (resolved_details or {}).get("description")
             or task.get("description")
             or ""
         ).strip()
@@ -890,7 +901,7 @@ class ClickUpAgent:
         else:
             sections.append("Описание задачи отсутствует.")
 
-        time_metrics = self._extract_time_metrics(details or task)
+        time_metrics = self._extract_time_metrics(resolved_details or task)
         if time_metrics:
             planned = self._format_minutes(time_metrics.get("planned_minutes"))
             tracked = self._format_minutes(time_metrics.get("tracked_minutes"))
@@ -900,7 +911,7 @@ class ClickUpAgent:
                 f"- Трекер времени: {tracked}"
             )
 
-        parent_section = self._parent_task_context(task, details)
+        parent_section = self._parent_task_context(task, resolved_details)
         if parent_section:
             sections.append(parent_section)
 
@@ -935,6 +946,41 @@ class ClickUpAgent:
             lines.append("Описание родительской задачи отсутствует.")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _extract_primary_assignee(task_data: Dict[str, Any]) -> Tuple[Optional[str], str, str]:
+        assignee_id: Optional[str] = None
+        assignee_name = "не указан"
+        assignee_role = "не указана"
+        assignees = task_data.get("assignees") or []
+        if isinstance(assignees, list) and assignees:
+            first_assignee = assignees[0]
+            if isinstance(first_assignee, dict):
+                raw_id = first_assignee.get("id")
+                if raw_id not in (None, ""):
+                    normalized_id = str(raw_id).strip()
+                    assignee_id = normalized_id or None
+                name_candidate = (
+                    first_assignee.get("username")
+                    or first_assignee.get("email")
+                    or first_assignee.get("user")
+                    or first_assignee.get("id")
+                )
+                if name_candidate not in (None, ""):
+                    normalized_name = str(name_candidate).strip()
+                    if normalized_name:
+                        assignee_name = normalized_name
+                role_candidate = first_assignee.get("role")
+                if role_candidate not in (None, ""):
+                    normalized_role = str(role_candidate).strip()
+                    if normalized_role:
+                        assignee_role = normalized_role
+            elif isinstance(first_assignee, str):
+                normalized = first_assignee.strip()
+                if normalized:
+                    assignee_id = normalized
+                    assignee_name = normalized
+        return assignee_id, assignee_name, assignee_role
 
     @staticmethod
     def _format_minutes(raw_minutes: Optional[int]) -> str:
